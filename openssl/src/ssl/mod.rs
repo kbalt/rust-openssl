@@ -104,6 +104,7 @@ use std::path::Path;
 use std::ptr;
 use std::str;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 pub use crate::ssl::connector::{
     ConnectConfiguration, SslAcceptor, SslAcceptorBuilder, SslConnector, SslConnectorBuilder,
@@ -3468,6 +3469,36 @@ impl SslRef {
                 Ok(_) => Ok(PKey::<Private>::from_ptr(key)),
                 Err(e) => Err(e),
             }
+        }
+    }
+
+    /// Returns a duration after which openssl needs to be called again to handle
+    /// time sensitive events. The duration may be ZERO, indicating that there are
+    /// events that need to be handled immediatly.
+    #[corresponds(SSL_get_event_timeout)]
+    #[cfg(ossl320)]
+    pub fn event_timeout(&self) -> Result<Option<Duration>, ErrorStack> {
+        unsafe {
+            let mut tv = libc::timeval {
+                tv_sec: 0,
+                tv_usec: 0,
+            };
+            let mut is_infinite = 0;
+
+            cvt(ffi::SSL_get_event_timeout(
+                self.as_ptr(),
+                &mut tv,
+                &mut is_infinite,
+            ))?;
+
+            if is_infinite == 1 {
+                return Ok(None);
+            }
+
+            let timeout = Duration::from_secs(tv.tv_sec.try_into().unwrap())
+                + Duration::from_micros(tv.tv_usec.try_into().unwrap());
+
+            Ok(Some(timeout))
         }
     }
 }
